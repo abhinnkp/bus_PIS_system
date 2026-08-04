@@ -1,0 +1,15 @@
+[Unit]
+Description=ABDOS Early Boot Configuration Service
+# Needs to run after NetworkManager is up so nmcli commands work.
+After=local-fs.target systemd-journald.socket NetworkManager.service
+Requires=local-fs.target NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/abdos-config.sh
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

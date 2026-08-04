@@ -1,0 +1,37 @@
+[Unit]
+Description=ABDOS Chromium Kiosk Environment
+# Wait for the network to be online before launching the browser
+After=network-online.target abdos-config.service local-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+PAMName=login
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+TTYPath=/dev/tty1
+
+# Setup display environment variables
+Environment="DISPLAY=:0"
+Environment="XAUTHORITY=/home/pi/.Xauthority"
+
+# Start the X server and execute the kiosk script
+ExecStart=/usr/bin/xinit /usr/local/bin/abdos-kiosk.sh -- :0 vt1 -nocursor -s 0 dpms
+
+# Once X11 is running, drop the Plymouth splash screen.
+# Delay allows Chromium time to render on a Pi Zero W before exposing the screen.
+ExecStartPost=/bin/sleep 10
+ExecStartPost=/usr/bin/sudo /bin/plymouth quit
+
+# Always restart if X11 or Chromium crashes
+Restart=always
+RestartSec=5
+
+# Give the browser time to cleanly exit if possible
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

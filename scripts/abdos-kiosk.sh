@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+log() {
+    logger -t abdos-kiosk "$1"
+    echo "abdos-kiosk: $1"
+}
+
+# 1. Source configuration
+CONFIG_FILE="/boot/firmware/abdos.conf"
+if [[ -f "$CONFIG_FILE" ]]; then
+    log "Loading configuration from $CONFIG_FILE"
+    while IFS='=' read -r key value; do
+        key="${key#"${key%%[![:space:]]*}"}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        key="${key%"${key##*[![:space:]]}"}"
+        value="${value%"${value##*[![:space:]]}"}"
+
+        value="${value#\"}"
+        value="${value%\"}"
+        value="${value#\'}"
+        value="${value%\'}"
+
+        [[ "$key" =~ ^#.*$ ]] && continue
+        [[ -z "$key" ]] && continue
+        export "$key=$value"
+    done < "$CONFIG_FILE"
+else
+    log "WARNING: Configuration file not found at $CONFIG_FILE"
+fi
+
+# Ensure URL is set
+TARGET_URL=${URL:-http://localhost}
+log "Target URL: $TARGET_URL"
+
+# Cache Mode Logic
+CACHE_MODE=${CACHE_MODE:-ram}
+if [[ "${CACHE_MODE,,}" == "clear" ]]; then
+    log "Clearing Chromium profile directory"
+    rm -rf /home/pi/.config/chromium/ || true
+    rm -rf /home/pi/.cache/chromium/ || true
+fi
+
+# Cursor Logic
+SHOW_CURSOR=${CURSOR:-false}
+if [[ "${SHOW_CURSOR,,}" == "false" ]]; then
+    log "Hiding mouse cursor via unclutter"
+    unclutter -idle 0.1 -root &
+fi
+
+# 2. X11 Display Settings
+# Disable DPMS (Energy Star) features
+xset -dpms
+# Disable screen blanking
+xset s noblank
+# Disable screen saver
+xset s off
+
+# 3. Window Manager
+# Start Openbox window manager in the background
+openbox-session &
+
+# 4. Chromium Launch (Heavily optimized for Pi Zero W)
+log "Launching Chromium in kiosk mode"
+
+# Use Chromium flags carefully selected for low memory footprint and long-term stability
+CHROMIUM_FLAGS=(
+    "--kiosk"                         # Fullscreen, locked down
+    "--no-first-run"                  # Disable first run dialog
+    "--noerrdialogs"                  # Suppress error dialogs
+    "--disable-infobars"              # Disable infobars (translation, crash recovery)
+    "--disable-features=TranslateUI"  # Ensure translation is disabled
+    "--disable-dev-shm-usage"         # Fix crash on low /dev/shm memory by using /tmp
+    "--user-data-dir=/tmp/chromium-user-data" # Move entire profile to RAM to ensure clean session
+    "--disk-cache-dir=/tmp/chromium-cache"    # Move cache to RAM (tmpfs) to save SD card writes
+    "--disable-gpu-shader-disk-cache" # Disable GPU shader disk cache
+    "--disable-extensions"            # Disable extensions to save RAM
+    "--disable-sync"                  # Disable Google Sync
+    "--fast"
+    "--fast-start"
+    "--disable-pinch"
+    "--overscroll-history-navigation=0"
+)
+
+# Start Chromium
+# We execute it directly (exec replaces the shell process) so systemd can accurately monitor its PID.
+exec chromium-browser "${CHROMIUM_FLAGS[@]}" "$TARGET_URL"

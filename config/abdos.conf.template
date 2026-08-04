@@ -1,0 +1,33 @@
+# ABDOS Configuration File
+# This file is sourced by bash scripts. Do not put spaces around the '=' sign.
+
+# The URL to display on boot. Must include http:// or https://
+URL=http://localhost
+
+# The network hostname of the device. (Max 63 chars, a-z, 0-9, -)
+HOSTNAME=abdos-display
+
+# If true, prioritize Ethernet connections over Wi-Fi. (true/false)
+ETHERNET_PRIORITY=true
+
+# Wi-Fi credentials. Leave empty to disable Wi-Fi.
+WIFI_SSID=
+WIFI_PASSWORD=
+
+# System timezone. Must be a valid tz database name (e.g., Europe/London).
+TIMEZONE=Etc/UTC
+
+# Path to the custom splash screen image.
+SPLASH_IMAGE=/boot/firmware/splash.png
+
+# Enable or disable the SSH daemon. (true/false)
+SSH_ENABLED=true
+
+# Enable the hardware watchdog. (true/false)
+WATCHDOG=true
+
+# Show or hide the mouse cursor. (true/false)
+CURSOR=false
+
+# Cache handling strategy across reboots. (ram or clear)
+CACHE_MODE=ram
