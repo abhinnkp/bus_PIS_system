@@ -3,16 +3,18 @@
 The ABDOS installer (`install.sh`) is the core mechanism that transforms a generic Raspberry Pi OS Lite image into the dedicated kiosk appliance.
 
 ## 1. Installation Flow
-1.  **Pre-flight Checks:** Verify OS version (Bookworm 32-bit), check for root privileges, verify internet connectivity (for `apt`).
-2.  **Package Management:** Run `apt update` and install mandatory packages defined in the SBOM (e.g., `chromium`, `plymouth`, `openbox`).
-3.  **Service Disablement:** Mask or disable unnecessary services (e.g., `bluetooth`, `avahi-daemon`) to meet performance targets.
-4.  **File Deployment:** Copy scripts to `/usr/local/bin/` and systemd units to `/etc/systemd/system/`.
-5.  **Configuration Seeding:** Copy `config/abdos.conf.template` to `/boot/firmware/abdos.conf` if it doesn't already exist.
-6.  **Boot Modification:** Append required flags for silent boot to `/boot/firmware/cmdline.txt` (ensuring no duplicates).
-7.  **Service Enablement:** Enable custom ABDOS systemd services.
-8.  **Cleanup:** Clear apt cache to save space. Prompt for reboot.
+1.  **Pre-flight Checks:** Verify root privileges.
+2.  **Dynamic Runtime Detection:** Detect the primary interactive user (via `SUDO_USER` or UID 1000) and Chromium package type. Validate the user and home directory.
+3.  **Package Management:** Install packages defined in the SBOM dynamically based on availability.
+4.  **Service Disablement:** Mask unnecessary services (e.g., `bluetooth`, swap) to meet Pi Zero W performance constraints.
+5.  **Template Rendering:** Render systemd unit files and shell script templates (`.in`), injecting the detected `@USER@`, `@HOME@`, and `@CHROMIUM_BIN@` to keep source files deployment-agnostic. Deploy to `/usr/local/bin/` and `/etc/systemd/system/`.
+6.  **Configuration Seeding:** Seed `/boot/firmware/abdos.conf` if missing.
+7.  **Boot & Plymouth Modification:** Safely modify `cmdline.txt` (after backing it up). Detect the active Plymouth theme and inject the custom splash image.
+8.  **Service Enablement:** Enable tmpfs (`tmp.mount`), volatile logging, and kiosk services.
+9.  **Cleanup:** Clear apt cache to save space.
 
-## 2. Idempotency
+## 2. Idempotency and Rollback
+The installer creates `.abdos.bak` backups of all modified system files (e.g., `cmdline.txt`, `system.conf`, `journald.conf`) prior to editing. The script uses robust text processing (`sed`, `grep`) to ensure it can be re-run safely multiple times.
 The installer must be idempotent. Running it multiple times on the same system must not cause failures, duplicate configurations in `cmdline.txt`, or broken states.
 *   Use `grep` before appending to files.
 *   Use `cp -f` to overwrite older scripts.

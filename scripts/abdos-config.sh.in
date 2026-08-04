@@ -16,25 +16,49 @@ fi
 
 log "Reading configuration from $CONFIG_FILE"
 
+# Allowed configuration keys API
+ALLOWED_KEYS=(
+    "URL" "HOSTNAME" "ETHERNET_PRIORITY" "WIFI_SSID" "WIFI_PASSWORD"
+    "TIMEZONE" "SPLASH_IMAGE" "SSH_ENABLED" "WATCHDOG" "CURSOR" "CACHE_MODE"
+)
+
+is_allowed_key() {
+    local k="$1"
+    for allowed in "${ALLOWED_KEYS[@]}"; do
+        [[ "$k" == "$allowed" ]] && return 0
+    done
+    return 1
+}
+
 # Load variables safely (ignore comments and empty lines)
 while IFS='=' read -r key value; do
+    # Skip comments and empty lines early
+    [[ "$key" =~ ^[[:space:]]*#.*$ ]] && continue
+    [[ -z "${key// /}" ]] && continue
+
     # Remove leading/trailing whitespace using pure bash (preserves exact spaces within string)
-    # Strip leading whitespace
     key="${key#"${key%%[![:space:]]*}"}"
-    value="${value#"${value%%[![:space:]]*}"}"
-    # Strip trailing whitespace
     key="${key%"${key##*[![:space:]]}"}"
-    value="${value%"${value##*[![:space:]]}"}"
 
-    # Strip optional surrounding quotes if present
-    value="${value#\"}"
-    value="${value%\"}"
-    value="${value#\'}"
-    value="${value%\'}"
+    # If the line doesn't have a value, bash sets it empty
+    if [[ -n "${value+x}" ]]; then
+        value="${value#"${value%%[![:space:]]*}"}"
+        value="${value%"${value##*[![:space:]]}"}"
 
-    # Skip comments and empty lines
-    [[ "$key" =~ ^#.*$ ]] && continue
-    [[ -z "$key" ]] && continue
+        # Strip optional surrounding quotes if present
+        value="${value#\"}"
+        value="${value%\"}"
+        value="${value#\'}"
+        value="${value%\'}"
+    else
+        value=""
+    fi
+
+    # Validate the key against the API allowlist
+    if ! is_allowed_key "$key"; then
+        log "WARNING: Unknown or malformed configuration key ignored: '$key'"
+        continue
+    fi
 
     export "$key=$value"
 done < "$CONFIG_FILE"
@@ -66,6 +90,12 @@ fi
 
 # 4. SSH Configuration
 SSH_STATUS=${SSH_ENABLED:-true}
+# Strict boolean validation
+if [[ "${SSH_STATUS,,}" != "true" && "${SSH_STATUS,,}" != "false" ]]; then
+    log "WARNING: Invalid SSH_ENABLED value '$SSH_STATUS'. Defaulting to 'true'."
+    SSH_STATUS="true"
+fi
+
 if [[ "${SSH_STATUS,,}" == "true" ]]; then
     if ! systemctl is-enabled ssh >/dev/null 2>&1; then
         log "Enabling SSH daemon"
@@ -136,6 +166,10 @@ if systemctl is-active --quiet NetworkManager; then
 
     # Configure Ethernet Priority
     ETH_PRIORITY=${ETHERNET_PRIORITY:-true}
+    if [[ "${ETH_PRIORITY,,}" != "true" && "${ETH_PRIORITY,,}" != "false" ]]; then
+        log "WARNING: Invalid ETHERNET_PRIORITY value '$ETH_PRIORITY'. Defaulting to 'true'."
+        ETH_PRIORITY="true"
+    fi
     # Create or update default ethernet profile metric
     if nmcli -t -f NAME connection show | grep -qx "Wired connection 1"; then
         if [[ "${ETH_PRIORITY,,}" == "true" ]]; then

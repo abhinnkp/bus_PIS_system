@@ -21,12 +21,49 @@ fi
 
 log_info "Starting ABDOS installation..."
 
-# 2. Package Management (based on SBOM)
-log_info "Updating apt repositories..."
-apt-get update -y
+# 2. Dynamic Runtime User Detection
+log_info "Detecting primary runtime user..."
+# Attempt to detect the user invoking sudo, fallback to ID 1000 (standard first user), or fail.
+if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
+    RUNTIME_USER="$SUDO_USER"
+elif id -nu 1000 >/dev/null 2>&1; then
+    RUNTIME_USER=$(id -nu 1000)
+else
+    log_err "Could not detect a standard primary interactive user (UID 1000 or SUDO_USER). Aborting."
+    exit 1
+fi
+
+RUNTIME_UID=$(id -u "$RUNTIME_USER")
+RUNTIME_GID=$(id -g "$RUNTIME_USER")
+RUNTIME_GROUP=$(id -ng "$RUNTIME_USER")
+RUNTIME_HOME=$(eval echo "~$RUNTIME_USER")
+
+# Runtime Validation
+if [[ ! -d "$RUNTIME_HOME" ]]; then
+    log_err "Detected home directory $RUNTIME_HOME for user $RUNTIME_USER does not exist. Aborting."
+    exit 1
+fi
+
+log_info "Detected User: $RUNTIME_USER (UID: $RUNTIME_UID, GID: $RUNTIME_GID)"
+log_info "Detected Home: $RUNTIME_HOME"
+
+# 3. Dynamic Chromium Package Detection
+log_info "Detecting available Chromium package..."
+apt-get update -y >/dev/null
+CHROMIUM_PKG="chromium"
+CHROMIUM_BIN="/usr/bin/chromium"
+if apt-cache show chromium-browser >/dev/null 2>&1; then
+    CHROMIUM_PKG="chromium-browser"
+    CHROMIUM_BIN="/usr/bin/chromium-browser"
+fi
+log_info "Selected browser package: $CHROMIUM_PKG ($CHROMIUM_BIN)"
+
+
+# 4. Package Management (based on SBOM)
+log_info "Installing mandatory packages..."
 
 PACKAGES=(
-    "chromium-browser"
+    "$CHROMIUM_PKG"
     "xserver-xorg"
     "x11-xserver-utils"
     "xinit"
@@ -41,7 +78,7 @@ log_info "Installing mandatory packages..."
 # Using DEBIAN_FRONTEND=noninteractive to prevent prompts during automated install
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${PACKAGES[@]}"
 
-# 3. Service Disablement (Resource Optimization)
+# 5. Service Disablement (Resource Optimization)
 log_info "Disabling unnecessary services..."
 SERVICES_TO_DISABLE=(
     "bluetooth"
@@ -69,28 +106,46 @@ if systemctl list-unit-files | grep -q "^dhcpcd.service"; then
 fi
 systemctl enable NetworkManager
 
-# Ensure pi user has correct groups for headless X11 startup
-log_info "Adding pi user to necessary groups..."
-usermod -a -G tty,video pi || true
+# Ensure user has correct groups for headless X11 startup
+log_info "Adding $RUNTIME_USER to necessary groups..."
+usermod -a -G tty,video "$RUNTIME_USER" || true
 
-# 4. File Deployment
-log_info "Deploying ABDOS scripts and services..."
+# 6. File Deployment & Template Rendering
+log_info "Rendering templates and deploying scripts/services..."
 
 # Assume script is run from abdos/installer directory
 REPO_ROOT="$(dirname "$(readlink -f "$0")")/.."
 
-# Copy scripts
-cp -f "${REPO_ROOT}/scripts/abdos-config.sh" /usr/local/bin/
-cp -f "${REPO_ROOT}/scripts/abdos-kiosk.sh" /usr/local/bin/
+backup_file() {
+    if [[ -f "$1" ]]; then
+        cp -f "$1" "$1.abdos.bak"
+    fi
+}
+
+render_template() {
+    local src="$1"
+    local dest="$2"
+    log_info "Rendering $src -> $dest"
+    backup_file "$dest"
+    sed -e "s|@USER@|${RUNTIME_USER}|g" \
+        -e "s|@GROUP@|${RUNTIME_GROUP}|g" \
+        -e "s|@HOME@|${RUNTIME_HOME}|g" \
+        -e "s|@CHROMIUM_BIN@|${CHROMIUM_BIN}|g" \
+        "$src" > "$dest"
+}
+
+# Deploy Scripts
+render_template "${REPO_ROOT}/scripts/abdos-config.sh.in" "/usr/local/bin/abdos-config.sh"
+render_template "${REPO_ROOT}/scripts/abdos-kiosk.sh.in" "/usr/local/bin/abdos-kiosk.sh"
 chmod +x /usr/local/bin/abdos-*.sh
 
-# Copy systemd units
-cp -f "${REPO_ROOT}/systemd/abdos-config.service" /etc/systemd/system/
-cp -f "${REPO_ROOT}/systemd/abdos-kiosk.service" /etc/systemd/system/
+# Deploy Systemd Units
+render_template "${REPO_ROOT}/systemd/abdos-config.service.in" "/etc/systemd/system/abdos-config.service"
+render_template "${REPO_ROOT}/systemd/abdos-kiosk.service.in" "/etc/systemd/system/abdos-kiosk.service"
 
 systemctl daemon-reload
 
-# 5. Configuration Seeding
+# 7. Configuration Seeding
 if [[ ! -f "/boot/firmware/abdos.conf" ]]; then
     log_info "Seeding default configuration to /boot/firmware/abdos.conf"
     cp "${REPO_ROOT}/config/abdos.conf.template" "/boot/firmware/abdos.conf"
@@ -103,10 +158,11 @@ if [[ ! -f "/boot/firmware/splash.png" ]]; then
     cp "${REPO_ROOT}/assets/splash.png" "/boot/firmware/splash.png"
 fi
 
-# 6. Boot Modification (Silent Boot & Plymouth)
+# 8. Boot Modification (Silent Boot & Plymouth)
 CMDLINE_FILE="/boot/firmware/cmdline.txt"
 if [[ -f "$CMDLINE_FILE" ]]; then
     log_info "Configuring silent boot parameters..."
+    backup_file "$CMDLINE_FILE"
     # Read current cmdline
     cmdline=$(cat "$CMDLINE_FILE")
 
@@ -129,24 +185,41 @@ else
     log_err "$CMDLINE_FILE not found! Are you on Raspberry Pi OS Bookworm?"
 fi
 
-# Setup Plymouth theme (using a basic theme that can display an image)
-if plymouth-set-default-theme -l | grep -q "pix"; then
-    log_info "Configuring custom Plymouth splash image..."
-    # The 'pix' theme in Pi OS uses splash.png. We overwrite it with ours.
-    cp "/boot/firmware/splash.png" "/usr/share/plymouth/themes/pix/splash.png" 2>/dev/null || true
-    # Set the theme and rebuild initramfs so it's available in early boot
-    plymouth-set-default-theme -R pix
+# 9. Dynamic Plymouth Theme Configuration
+log_info "Configuring custom Plymouth splash image..."
+# Detect available themes, prefer 'pix', fallback to 'spinner' or 'tribar'
+AVAILABLE_THEMES=$(plymouth-set-default-theme -l)
+SELECTED_THEME=""
+for t in pix spinner tribar; do
+    if echo "$AVAILABLE_THEMES" | grep -q "^$t$"; then
+        SELECTED_THEME="$t"
+        break
+    fi
+done
+
+if [[ -n "$SELECTED_THEME" ]]; then
+    THEME_IMG_DIR="/usr/share/plymouth/themes/$SELECTED_THEME"
+    # Overwrite the default splash asset for the detected theme if it exists
+    if [[ -d "$THEME_IMG_DIR" ]]; then
+        for img in splash.png watermark.png box.png; do
+            if [[ -f "$THEME_IMG_DIR/$img" ]]; then
+                backup_file "$THEME_IMG_DIR/$img"
+                cp "/boot/firmware/splash.png" "$THEME_IMG_DIR/$img" 2>/dev/null || true
+            fi
+        done
+    fi
+    log_info "Setting plymouth theme to $SELECTED_THEME and rebuilding initramfs..."
+    plymouth-set-default-theme -R "$SELECTED_THEME" || true
 else
-    # Fallback to tribar if pix isn't available
-    plymouth-set-default-theme -R tribar || true
+    log_warn "No suitable plymouth theme found. Splash screen may not display custom image."
 fi
 
-# 7. Hardware Watchdog Enablement
+# 10. Hardware Watchdog Enablement
 log_info "Configuring Hardware Watchdog via systemd..."
-# Enable RuntimeWatchdog in systemd
+backup_file "/etc/systemd/system.conf"
 sed -i 's/^#RuntimeWatchdogSec=.*/RuntimeWatchdogSec=15/' /etc/systemd/system.conf
 
-# Enable RAM-backed /tmp
+# 11. RAM-Backed File Systems
 log_info "Enabling tmp.mount to ensure /tmp is tmpfs (RAM)..."
 if ! systemctl enable tmp.mount 2>/dev/null; then
     cp /usr/share/systemd/tmp.mount /etc/systemd/system/tmp.mount || true
@@ -155,10 +228,11 @@ fi
 
 # Configure Volatile Logging (RAM-based systemd journal)
 log_info "Configuring volatile journald logging..."
+backup_file "/etc/systemd/journald.conf"
 sed -i 's/^#Storage=.*/Storage=volatile/' /etc/systemd/journald.conf
 systemctl restart systemd-journald || true
 
-# 8. Service Enablement
+# 12. Service Enablement
 log_info "Enabling ABDOS services..."
 systemctl enable abdos-config.service
 systemctl enable abdos-kiosk.service
@@ -168,13 +242,7 @@ log_info "Masking default plymouth-quit services..."
 systemctl mask plymouth-quit.service
 systemctl mask plymouth-quit-wait.service
 
-# Setup sudoers for pi to drop splash (ExecStartPost in systemd unit requires root)
-if ! grep -q "plymouth" /etc/sudoers.d/010_pi-nopasswd 2>/dev/null; then
-    echo "pi ALL=(ALL) NOPASSWD: /bin/plymouth quit" > /etc/sudoers.d/abdos-plymouth
-    chmod 0440 /etc/sudoers.d/abdos-plymouth
-fi
-
-# 9. Cleanup
+# 13. Cleanup
 log_info "Cleaning up apt cache..."
 apt-get clean
 

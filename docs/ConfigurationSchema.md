@@ -75,5 +75,6 @@ This document defines the formal schema and behavior for `/boot/firmware/abdos.c
 *   **Error Handling:** If invalid, assume `ram`.
 
 ## 2. Global Error Handling Strategy
-*   Invalid configuration parameters must *never* cause a boot failure or kernel panic.
-*   The `abdos-config.service` will parse the file, apply validation rules, log any deviations to the journal, and apply safe defaults where necessary.
+*   **Allowlist API:** The configuration parser rejects any unknown or malformed keys. Only strictly defined parameters are exported to the environment.
+*   **Fail-Safe:** Invalid configuration parameters (e.g., non-boolean values) are reset to safe defaults. They must *never* cause a boot failure or kernel panic.
+*   The `abdos-config.service` parses the file securely using pure bash text manipulation (no `eval` or unsafe execution), logs deviations, and applies safe defaults where necessary.

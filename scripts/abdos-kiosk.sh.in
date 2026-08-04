@@ -37,8 +37,8 @@ log "Target URL: $TARGET_URL"
 CACHE_MODE=${CACHE_MODE:-ram}
 if [[ "${CACHE_MODE,,}" == "clear" ]]; then
     log "Clearing Chromium profile directory"
-    rm -rf /home/pi/.config/chromium/ || true
-    rm -rf /home/pi/.cache/chromium/ || true
+    rm -rf "@HOME@/.config/chromium/" || true
+    rm -rf "@HOME@/.cache/chromium/" || true
 fi
 
 # Cursor Logic
@@ -76,12 +76,11 @@ CHROMIUM_FLAGS=(
     "--disable-gpu-shader-disk-cache" # Disable GPU shader disk cache
     "--disable-extensions"            # Disable extensions to save RAM
     "--disable-sync"                  # Disable Google Sync
-    "--fast"
-    "--fast-start"
-    "--disable-pinch"
-    "--overscroll-history-navigation=0"
+    "--disable-pinch"                 # Prevent pinch-to-zoom on touchscreens
+    "--overscroll-history-navigation=0" # Prevent swipe to go back
 )
+# Note: Removed obsolete flags --fast and --fast-start as they are no longer supported in modern Chromium versions.
 
 # Start Chromium
 # We execute it directly (exec replaces the shell process) so systemd can accurately monitor its PID.
-exec chromium-browser "${CHROMIUM_FLAGS[@]}" "$TARGET_URL"
+exec @CHROMIUM_BIN@ "${CHROMIUM_FLAGS[@]}" "$TARGET_URL"
