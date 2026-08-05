@@ -36,7 +36,7 @@ fi
 RUNTIME_UID=$(id -u "$RUNTIME_USER")
 RUNTIME_GID=$(id -g "$RUNTIME_USER")
 RUNTIME_GROUP=$(id -ng "$RUNTIME_USER")
-RUNTIME_HOME=$(eval echo "~$RUNTIME_USER")
+RUNTIME_HOME=$(getent passwd "$RUNTIME_USER" | cut -d: -f6)
 
 # Runtime Validation
 if [[ ! -d "$RUNTIME_HOME" ]]; then
@@ -50,14 +50,14 @@ log_info "Detected Home: $RUNTIME_HOME"
 # 3. Dynamic Chromium Package Detection
 log_info "Detecting available Chromium package..."
 apt-get update -y >/dev/null
-CHROMIUM_PKG="chromium"
-CHROMIUM_BIN="/usr/bin/chromium"
-if apt-cache show chromium-browser >/dev/null 2>&1; then
+# Prefer the native 'chromium' package on Bookworm
+if apt-cache show chromium >/dev/null 2>&1; then
+    CHROMIUM_PKG="chromium"
+else
+    # Fallback for older/alternate repo structures
     CHROMIUM_PKG="chromium-browser"
-    CHROMIUM_BIN="/usr/bin/chromium-browser"
 fi
-log_info "Selected browser package: $CHROMIUM_PKG ($CHROMIUM_BIN)"
-
+log_info "Selected browser package: $CHROMIUM_PKG"
 
 # 4. Package Management (based on SBOM)
 log_info "Installing mandatory packages..."
@@ -74,9 +74,19 @@ PACKAGES=(
     "network-manager"
 )
 
-log_info "Installing mandatory packages..."
 # Using DEBIAN_FRONTEND=noninteractive to prevent prompts during automated install
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${PACKAGES[@]}"
+
+# Detect binary path post-installation
+if command -v chromium >/dev/null 2>&1; then
+    CHROMIUM_BIN="$(command -v chromium)"
+elif command -v chromium-browser >/dev/null 2>&1; then
+    CHROMIUM_BIN="$(command -v chromium-browser)"
+else
+    log_err "Failed to locate Chromium binary after installation. Aborting."
+    exit 1
+fi
+log_info "Detected browser binary at: $CHROMIUM_BIN"
 
 # 5. Service Disablement (Resource Optimization)
 log_info "Disabling unnecessary services..."
@@ -87,8 +97,9 @@ SERVICES_TO_DISABLE=(
     "triggerhappy"
     "apt-daily.timer"
     "apt-daily-upgrade.timer"
-    "dphys-swapfile" # Disable swap to save SD card wear
 )
+# Note: dphys-swapfile is retained during initial validation phases to ensure Chromium does not OOM.
+# SD card wear optimizations will be measured and adjusted in Phase 3.
 
 for svc in "${SERVICES_TO_DISABLE[@]}"; do
     if systemctl list-unit-files | grep -q "^${svc}"; then
