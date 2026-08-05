@@ -6,23 +6,50 @@ log() {
     echo "abdos-kiosk: $1"
 }
 
+# Allowed configuration keys API
+ALLOWED_KEYS=(
+    "URL" "HOSTNAME" "ETHERNET_PRIORITY" "WIFI_SSID" "WIFI_PASSWORD"
+    "TIMEZONE" "SPLASH_IMAGE" "SSH_ENABLED" "WATCHDOG" "CURSOR" "CACHE_MODE"
+)
+
+is_allowed_key() {
+    local k="$1"
+    for allowed in "${ALLOWED_KEYS[@]}"; do
+        [[ "$k" == "$allowed" ]] && return 0
+    done
+    return 1
+}
+
 # 1. Source configuration
 CONFIG_FILE="/boot/firmware/abdos.conf"
 if [[ -f "$CONFIG_FILE" ]]; then
     log "Loading configuration from $CONFIG_FILE"
     while IFS='=' read -r key value; do
+        # Skip comments and empty lines early
+        [[ "$key" =~ ^[[:space:]]*#.*$ ]] && continue
+        [[ -z "${key// /}" ]] && continue
+
+        # Remove leading/trailing whitespace
         key="${key#"${key%%[![:space:]]*}"}"
-        value="${value#"${value%%[![:space:]]*}"}"
         key="${key%"${key##*[![:space:]]}"}"
-        value="${value%"${value##*[![:space:]]}"}"
 
-        value="${value#\"}"
-        value="${value%\"}"
-        value="${value#\'}"
-        value="${value%\'}"
+        if [[ -n "${value+x}" ]]; then
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
 
-        [[ "$key" =~ ^#.*$ ]] && continue
-        [[ -z "$key" ]] && continue
+            value="${value#\"}"
+            value="${value%\"}"
+            value="${value#\'}"
+            value="${value%\'}"
+        else
+            value=""
+        fi
+
+        if ! is_allowed_key "$key"; then
+            log "WARNING: Unknown or malformed configuration key ignored: '$key'"
+            continue
+        fi
+
         export "$key=$value"
     done < "$CONFIG_FILE"
 else
@@ -30,7 +57,7 @@ else
 fi
 
 # Ensure URL is set
-TARGET_URL=${URL:-http://localhost}
+TARGET_URL=${URL:-about:blank}
 log "Target URL: $TARGET_URL"
 
 # Cache Mode Logic
@@ -59,8 +86,27 @@ xset s off
 # 3. Window Manager
 # Start Openbox window manager in the background
 openbox-session &
+# Short synchronization delay to ensure the window manager is ready on slower hardware
+sleep 1
 
-# 4. Chromium Launch (Heavily optimized for Pi Zero W)
+# 4. Hardware Detection (ARMv6 / NEON limitation)
+if [[ "$(uname -m)" == "armv6l" ]]; then
+    log "ERROR: ARMv6 architecture (Raspberry Pi Zero W / 1) detected."
+    log "ERROR: The modern Chromium browser on Bookworm requires NEON instructions, which ARMv6 lacks."
+    log "ERROR: ABDOS cannot launch Chromium on this hardware. Halting kiosk startup to prevent crash loops."
+    # Exit with code 2 to instruct systemd not to restart it
+    exit 2
+fi
+
+# 5. Browser Launch Validation
+CHROMIUM_BIN="@CHROMIUM_BIN@"
+if [[ ! -x "$CHROMIUM_BIN" ]]; then
+    log "ERROR: Chromium executable not found or not executable at: $CHROMIUM_BIN"
+    log "ERROR: ABDOS cannot continue."
+    exit 2
+fi
+
+# 6. Chromium Launch (Heavily optimized for Pi Zero/2/3)
 log "Launching Chromium in kiosk mode"
 
 # Use Chromium flags carefully selected for low memory footprint and long-term stability

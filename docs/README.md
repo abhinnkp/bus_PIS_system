@@ -1,7 +1,8 @@
 # Amnex Bus Display OS (ABDOS)
 
 **Version:** 1.0
-**Target Hardware:** Raspberry Pi Zero W, 2 Model B, 3 Model B/B+
+**Target Hardware:** Raspberry Pi 2 Model B, 3 Model B/B+
+*(Note: ARMv6 hardware like the Pi Zero W / Pi 1 is technically incompatible with Bookworm's native Chromium build which requires ARMv7 NEON instructions. ABDOS will detect ARMv6 and cleanly abort kiosk launch).*
 **Base OS:** Raspberry Pi OS Lite (Bookworm, 32-bit)
 
 ## 1. Project Overview

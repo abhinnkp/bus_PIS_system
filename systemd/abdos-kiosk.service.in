@@ -33,6 +33,8 @@ RestartSec=5
 # Prevent endless restart loops if the display server fatally breaks
 StartLimitBurst=5
 StartLimitIntervalSec=60
+# Do not restart if the script explicitly exited with code 2 (fatal hardware/binary missing)
+RestartPreventExitStatus=2
 
 # Give the browser time to cleanly exit if possible
 TimeoutStopSec=10

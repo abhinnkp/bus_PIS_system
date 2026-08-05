@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] - Phase 2 (Current)
 
 ### Added
+*   Hardware detection rejecting Chromium launch on ARMv6 (Pi Zero W / 1) due to Bookworm NEON requirement.
+*   Browser binary validation in the `abdos-kiosk.sh` script, exiting gracefully if missing.
+*   Openbox synchronization delay (`sleep 1`) on slower hardware.
+*   Strict allowlist API enforced in all configuration parsers.
+*   Robust INI parser in installer to safely update systemd configurations (Watchdog, Journald).
+*   Console parameter stripping (`console=tty1`, `console=serial0`) for silent boot.
 *   Core installer script (`install.sh`) with idempotent execution and backup functionality.
 *   Dynamic runtime user detection (`@USER@`, `@HOME@`) replacing hard-coded accounts.
 *   Dynamic Chromium package and Plymouth theme detection.

@@ -5,7 +5,7 @@ This guide describes how to install ABDOS onto a fresh Raspberry Pi.
 ## Prerequisites
 1.  A microSD card (8GB minimum recommended).
 2.  Raspberry Pi Imager tool.
-3.  A target Raspberry Pi (Zero W, 2, or 3).
+3.  A target Raspberry Pi (2, or 3). *(Pi Zero W is incompatible with Bookworm Chromium NEON requirements)*.
 
 ## Step 1: Flash the OS
 1.  Open Raspberry Pi Imager.

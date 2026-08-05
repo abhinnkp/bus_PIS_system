@@ -2,7 +2,7 @@
 # This file is sourced by bash scripts. Do not put spaces around the '=' sign.
 
 # The URL to display on boot. Must include http:// or https://
-URL=http://localhost
+URL=about:blank
 
 # The network hostname of the device. (Max 63 chars, a-z, 0-9, -)
 HOSTNAME=abdos-display

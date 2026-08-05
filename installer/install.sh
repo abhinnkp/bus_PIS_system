@@ -19,6 +19,26 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
+REPO_ROOT="$(dirname "$(readlink -f "$0")")/.."
+
+# Verify required files and directories exist before proceeding
+log_info "Verifying installer assets and templates..."
+REQUIRED_FILES=(
+    "${REPO_ROOT}/config/abdos.conf.template"
+    "${REPO_ROOT}/assets/splash.png"
+    "${REPO_ROOT}/scripts/abdos-config.sh.in"
+    "${REPO_ROOT}/scripts/abdos-kiosk.sh.in"
+    "${REPO_ROOT}/systemd/abdos-config.service.in"
+    "${REPO_ROOT}/systemd/abdos-kiosk.service.in"
+)
+for req in "${REQUIRED_FILES[@]}"; do
+    if [[ ! -f "$req" ]]; then
+        log_err "Required template or asset missing: $req"
+        log_err "Installation aborted. System has not been modified."
+        exit 1
+    fi
+done
+
 log_info "Starting ABDOS installation..."
 
 # 2. Dynamic Runtime User Detection
@@ -124,8 +144,6 @@ usermod -a -G tty,video "$RUNTIME_USER" || true
 # 6. File Deployment & Template Rendering
 log_info "Rendering templates and deploying scripts/services..."
 
-# Assume script is run from abdos/installer directory
-REPO_ROOT="$(dirname "$(readlink -f "$0")")/.."
 
 backup_file() {
     if [[ -f "$1" ]]; then
@@ -187,11 +205,13 @@ if [[ -f "$CMDLINE_FILE" ]]; then
         fi
     done
 
-    # Remove console=tty1 to stop text output on HDMI
-    cmdline=$(echo "$cmdline" | sed 's/console=tty1//g' | xargs)
+    # Remove all console entries to stop text output on HDMI and Serial
+    # e.g., console=tty1, console=serial0,115200, console=ttyAMA0,115200
+    cmdline=$(echo "$cmdline" | sed -E 's/console=[a-zA-Z0-9,]+//g' | xargs)
 
     # Write back
     echo "$cmdline" > "$CMDLINE_FILE"
+    log_info "Successfully updated $CMDLINE_FILE"
 else
     log_err "$CMDLINE_FILE not found! Are you on Raspberry Pi OS Bookworm?"
 fi
@@ -225,10 +245,26 @@ else
     log_warn "No suitable plymouth theme found. Splash screen may not display custom image."
 fi
 
+# INI updater function
+update_ini() {
+    local file="$1"
+    local key="$2"
+    local value="$3"
+
+    if grep -q "^[#]*[[:space:]]*${key}=" "$file"; then
+        # Replace existing (commented or not)
+        sed -i "s/^[#]*[[:space:]]*${key}=.*/${key}=${value}/" "$file"
+    else
+        # Append if not found
+        echo "${key}=${value}" >> "$file"
+    fi
+}
+
 # 10. Hardware Watchdog Enablement
 log_info "Configuring Hardware Watchdog via systemd..."
 backup_file "/etc/systemd/system.conf"
-sed -i 's/^#RuntimeWatchdogSec=.*/RuntimeWatchdogSec=15/' /etc/systemd/system.conf
+update_ini "/etc/systemd/system.conf" "RuntimeWatchdogSec" "15"
+log_info "Successfully configured Hardware Watchdog."
 
 # 11. RAM-Backed File Systems
 log_info "Enabling tmp.mount to ensure /tmp is tmpfs (RAM)..."
@@ -240,13 +276,15 @@ fi
 # Configure Volatile Logging (RAM-based systemd journal)
 log_info "Configuring volatile journald logging..."
 backup_file "/etc/systemd/journald.conf"
-sed -i 's/^#Storage=.*/Storage=volatile/' /etc/systemd/journald.conf
+update_ini "/etc/systemd/journald.conf" "Storage" "volatile"
 systemctl restart systemd-journald || true
+log_info "Successfully configured volatile logging."
 
 # 12. Service Enablement
 log_info "Enabling ABDOS services..."
 systemctl enable abdos-config.service
 systemctl enable abdos-kiosk.service
+log_info "Successfully enabled ABDOS services."
 
 # Prevent standard plymouth from dropping splash screen before kiosk is ready
 log_info "Masking default plymouth-quit services..."

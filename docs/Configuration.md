@@ -9,7 +9,7 @@ This file uses a standard bash-sourceable key-value format. No spaces are allowe
 
 | Parameter | Type | Default | Required | Validation Rules | Description | Example |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `URL` | String | `http://localhost` | Yes | Must be a valid HTTP/HTTPS URL | The webpage the kiosk will display. | `URL=https://example.com` |
+| `URL` | String | `about:blank` | Yes | Must be a valid HTTP/HTTPS URL | The webpage the kiosk will display. | `URL=https://example.com` |
 | `HOSTNAME` | String | `abdos-display` | No | Valid hostname characters (a-z, 0-9, -) | The network hostname of the device. | `HOSTNAME=BUS-DISPLAY-001` |
 | `ETHERNET_PRIORITY`| Boolean| `true` | No | `true` or `false` | Prefer Ethernet over Wi-Fi when both are available. | `ETHERNET_PRIORITY=true` |
 | `WIFI_SSID` | String | (empty) | No | Any string | Wi-Fi network name. | `WIFI_SSID=DepotWiFi` |
