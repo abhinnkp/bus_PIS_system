@@ -66,9 +66,23 @@ done < "$CONFIG_FILE"
 # 2. Hostname Configuration
 if [[ -n "${HOSTNAME:-}" ]]; then
     if [[ "$HOSTNAME" =~ ^[a-zA-Z0-9-]+$ ]]; then
-        if [[ $(hostname) != "$HOSTNAME" ]]; then
+        current_hostname=$(hostname)
+        if [[ "$current_hostname" != "$HOSTNAME" ]]; then
             log "Applying hostname: $HOSTNAME"
-            hostnamectl set-hostname "$HOSTNAME"
+            # Atomic update of both hostname and hosts file
+            if hostnamectl set-hostname "$HOSTNAME"; then
+                # Safely replace the old hostname in /etc/hosts, ignoring localhost
+                sed -i "s/\b$current_hostname\b/$HOSTNAME/g" /etc/hosts || log "WARNING: Failed to update /etc/hosts"
+
+                # Verify resolution
+                if ! getent hosts "$HOSTNAME" >/dev/null 2>&1; then
+                    log "ERROR: Hostname resolution failed for $HOSTNAME. Rolling back."
+                    hostnamectl set-hostname "$current_hostname"
+                    sed -i "s/\b$HOSTNAME\b/$current_hostname/g" /etc/hosts || true
+                fi
+            else
+                log "ERROR: Failed to set hostname via hostnamectl."
+            fi
         fi
     else
         log "WARNING: Invalid hostname format '$HOSTNAME'. Skipping."

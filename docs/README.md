@@ -46,3 +46,5 @@ The architecture and design are comprehensively documented. Start here:
 *   [Configuration Guide](Configuration.md)
 *   [Installation Guide](Installation.md)
 *   [Performance Targets](PerformanceTargets.md)
+*   [Hardware Validation](HardwareValidation.md)
+*   [ADR-007: X11 Startup Architecture](ADR/ADR-007-X11-Startup.md)

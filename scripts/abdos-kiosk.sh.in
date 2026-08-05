@@ -83,49 +83,80 @@ xset s noblank
 # Disable screen saver
 xset s off
 
-# 3. Window Manager
-# Start Openbox window manager in the background
-openbox-session &
-# Short synchronization delay to ensure the window manager is ready on slower hardware
-sleep 1
+log "[Display] Display environment created: DISPLAY=$DISPLAY"
 
-# 4. Hardware Detection (ARMv6 / NEON limitation)
+# 3. Validation: X Server Status
+if ! xset q >/dev/null 2>&1; then
+    log "[ERROR] X server is not available or responding."
+    exit 2
+fi
+log "[Display] X server socket is available."
+
+# 4. Window Manager
+log "[Openbox] Starting Openbox..."
+openbox-session &
+# Wait for Openbox to register itself to avoid race conditions
+for i in {1..5}; do
+    if xprop -root _NET_SUPPORTING_WM_CHECK >/dev/null 2>&1; then
+        log "[Openbox] Openbox started successfully."
+        break
+    fi
+    sleep 1
+    if [[ $i -eq 5 ]]; then
+        log "[WARNING] Openbox startup verification timed out, proceeding anyway."
+    fi
+done
+
+# 5. Hardware Detection (ARMv6 / NEON limitation)
 if [[ "$(uname -m)" == "armv6l" ]]; then
-    log "ERROR: ARMv6 architecture (Raspberry Pi Zero W / 1) detected."
-    log "ERROR: The modern Chromium browser on Bookworm requires NEON instructions, which ARMv6 lacks."
-    log "ERROR: ABDOS cannot launch Chromium on this hardware. Halting kiosk startup to prevent crash loops."
+    log "[ERROR] ARMv6 architecture (Raspberry Pi Zero W / 1) detected."
+    log "[ERROR] The modern Chromium browser on Bookworm requires NEON instructions, which ARMv6 lacks."
+    log "[ERROR] ABDOS cannot launch Chromium on this hardware. Halting kiosk startup to prevent crash loops."
     # Exit with code 2 to instruct systemd not to restart it
     exit 2
 fi
 
-# 5. Browser Launch Validation
+# 6. Browser Launch Validation
 CHROMIUM_BIN="@CHROMIUM_BIN@"
 if [[ ! -x "$CHROMIUM_BIN" ]]; then
-    log "ERROR: Chromium executable not found or not executable at: $CHROMIUM_BIN"
-    log "ERROR: ABDOS cannot continue."
+    log "[ERROR] Chromium executable not found or not executable at: $CHROMIUM_BIN"
+    log "[ERROR] ABDOS cannot continue."
     exit 2
 fi
+log "[Chromium] Chromium binary validated at $CHROMIUM_BIN."
 
-# 6. Chromium Launch (Heavily optimized for Pi Zero/2/3)
-log "Launching Chromium in kiosk mode"
+# 7. Chromium Launch (Heavily optimized for Pi Zero/2/3)
+log "[Chromium] Launching Chromium in kiosk mode targeting $TARGET_URL"
 
-# Use Chromium flags carefully selected for low memory footprint and long-term stability
+# Chromium Flags Documentation:
+# --kiosk: Enforces fullscreen mode and removes all window decorations/menus.
+# --no-first-run: Skips the initial setup wizard, crucial for unattended appliances.
+# --noerrdialogs: Suppresses error popups (e.g., "Chromium crashed unexpectedly"), forcing a clean UI.
+# --disable-infobars: Hides yellow warning bars like "Google API keys are missing" or crash recovery prompts.
+# --disable-features=Translate: Explicitly disables the translation popup feature to save RAM and screen space.
+# --disable-dev-shm-usage: Crucial for low-RAM devices; forces Chromium to use /tmp instead of the tiny /dev/shm, preventing "Aw, Snap!" crashes.
+# --user-data-dir=/tmp/...: Forces the entire user profile (history, cookies, preferences) into RAM, guaranteeing a perfectly clean session on every reboot and saving SD card writes.
+# --disk-cache-dir=/tmp/...: Forces the web cache into RAM (tmpfs) to drastically reduce SD card wear during 24x7 operation.
+# --disable-gpu-shader-disk-cache: Prevents Chromium from writing GPU shaders to the SD card, saving write cycles.
+# --disable-extensions: Disables the extension subsystem entirely to conserve RAM.
+# --disable-sync: Disables Google Sync subsystem to conserve RAM and CPU.
+# --disable-pinch: Prevents pinch-to-zoom gestures if a touchscreen is connected.
+# --overscroll-history-navigation=0: Disables swipe-to-go-back gestures, locking the user to the single page.
 CHROMIUM_FLAGS=(
-    "--kiosk"                         # Fullscreen, locked down
-    "--no-first-run"                  # Disable first run dialog
-    "--noerrdialogs"                  # Suppress error dialogs
-    "--disable-infobars"              # Disable infobars (translation, crash recovery)
-    "--disable-features=TranslateUI"  # Ensure translation is disabled
-    "--disable-dev-shm-usage"         # Fix crash on low /dev/shm memory by using /tmp
-    "--user-data-dir=/tmp/chromium-user-data" # Move entire profile to RAM to ensure clean session
-    "--disk-cache-dir=/tmp/chromium-cache"    # Move cache to RAM (tmpfs) to save SD card writes
-    "--disable-gpu-shader-disk-cache" # Disable GPU shader disk cache
-    "--disable-extensions"            # Disable extensions to save RAM
-    "--disable-sync"                  # Disable Google Sync
-    "--disable-pinch"                 # Prevent pinch-to-zoom on touchscreens
-    "--overscroll-history-navigation=0" # Prevent swipe to go back
+    "--kiosk"
+    "--no-first-run"
+    "--noerrdialogs"
+    "--disable-infobars"
+    "--disable-features=Translate"
+    "--disable-dev-shm-usage"
+    "--user-data-dir=/tmp/chromium-user-data"
+    "--disk-cache-dir=/tmp/chromium-cache"
+    "--disable-gpu-shader-disk-cache"
+    "--disable-extensions"
+    "--disable-sync"
+    "--disable-pinch"
+    "--overscroll-history-navigation=0"
 )
-# Note: Removed obsolete flags --fast and --fast-start as they are no longer supported in modern Chromium versions.
 
 # Start Chromium
 # We execute it directly (exec replaces the shell process) so systemd can accurately monitor its PID.

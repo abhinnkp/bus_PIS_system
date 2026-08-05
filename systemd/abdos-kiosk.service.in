@@ -3,6 +3,9 @@ Description=ABDOS Chromium Kiosk Environment
 # Wait for the network to be online before launching the browser
 After=network-online.target abdos-config.service local-fs.target
 Wants=network-online.target
+# Prevent endless restart loops if the display server fatally breaks
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
 Type=simple
@@ -30,9 +33,6 @@ ExecStartPost=+/bin/plymouth quit
 # Always restart if X11 or Chromium crashes
 Restart=always
 RestartSec=5
-# Prevent endless restart loops if the display server fatally breaks
-StartLimitBurst=5
-StartLimitIntervalSec=60
 # Do not restart if the script explicitly exited with code 2 (fatal hardware/binary missing)
 RestartPreventExitStatus=2
 

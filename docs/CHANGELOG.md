@@ -5,7 +5,19 @@ All notable changes to the ABDOS project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - Phase 2 (Current)
+## [Unreleased] - Alpha-2 Release
+
+### Added
+*   Modularized installer architecture (`installer/lib/`) for better maintainability.
+*   Complete, idempotent uninstaller (`installer/uninstall.sh`).
+*   Automated `/etc/X11/Xwrapper.config` configuration for reliable rootless Xorg execution.
+*   Atomic Hostname configuration logic (updates both `/etc/hostname` and `/etc/hosts`).
+*   Hardware Validation documentation and Alpha-1 root cause analysis.
+
+### Changed
+*   Moved `StartLimitIntervalSec` to the correct `[Unit]` section in systemd services.
+
+## [Unreleased] - Phase 2
 
 ### Added
 *   Hardware detection rejecting Chromium launch on ARMv6 (Pi Zero W / 1) due to Bookworm NEON requirement.
